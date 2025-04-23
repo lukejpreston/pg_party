@@ -332,6 +332,7 @@ module PgParty
         index_definition.unique ? 'UNIQUE' : index_definition.type,
         index_columns,
         index_definition.where ? " WHERE #{index_definition.where}" : nil,
+        index_definition.include ? "INCLUDE (#{index_definition.include.join(', ')})" : nil
         add_index_options_result.second, # algorithm option
         index_definition.using ? "USING #{index_definition.using}" : nil
       ]
