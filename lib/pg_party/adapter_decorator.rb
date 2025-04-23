@@ -331,10 +331,16 @@ module PgParty
         index_definition.name,
         index_definition.unique ? 'UNIQUE' : index_definition.type,
         index_columns,
-        "#{index_definition.include ? " INCLUDE (#{index_definition.include.join(', ')})" : ''} #{index_definition.where ? " WHERE #{index_definition.where}" : ''}",
+        index_options(index_definition),
         add_index_options_result.second, # algorithm option
         index_definition.using ? "USING #{index_definition.using}" : nil
       ]
+    end
+
+    def index_options(index_definition)
+      return nil if index_definition.include.blank? && index_definition.where.blank?
+
+      "#{index_definition.include ? " INCLUDE (#{index_definition.include.join(', ')})" : ''} #{index_definition.where ? " WHERE #{index_definition.where}" : ''}",
     end
 
     def drop_indices_if_exist(index_names)
