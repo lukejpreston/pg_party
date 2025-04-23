@@ -340,7 +340,9 @@ module PgParty
     def index_options(index_definition)
       return nil if index_definition.include.blank? && index_definition.where.blank?
 
-      "#{index_definition.include ? " INCLUDE (#{index_definition.include.join(', ')})" : ''} #{index_definition.where ? " WHERE #{index_definition.where}" : ''}",
+      include_sql = index_definition.include ? " INCLUDE (#{index_definition.include.join(', ')})" : ''
+      where_sql = index_definition.where ? " WHERE #{index_definition.where}" : ''
+      "#{include_sql} #{where_sql}",
     end
 
     def drop_indices_if_exist(index_names)
