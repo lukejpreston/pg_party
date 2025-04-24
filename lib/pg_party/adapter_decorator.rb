@@ -338,11 +338,13 @@ module PgParty
     end
 
     def index_options(index_definition)
-      return nil if index_definition.include.blank? && index_definition.where.blank?
+      return unless index_definition.respond_to?(:include) || index_definition.where
 
-      include_sql = index_definition.include ? " INCLUDE (#{index_definition.include.join(', ')})" : ''
-      where_sql = index_definition.where ? " WHERE #{index_definition.where}" : ''
-      "#{include_sql} #{where_sql}",
+      index_includes = index_definition.respond_to?(:include) ? index_definition.include : nil
+      include_options = index_includes && index_definition.using != :hash ? " INCLUDE (#{index_includes.join(', ')})" : ''
+      where_options = index_definition.where ? " WHERE #{index_definition.where}" : ''
+
+      "#{include_options}#{where_options}"
     end
 
     def drop_indices_if_exist(index_names)

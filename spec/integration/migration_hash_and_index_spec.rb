@@ -136,9 +136,16 @@ RSpec.describe ActiveRecord::ConnectionAdapters::PostgreSQLAdapter do
   subject(:add_index_on_all_partitions) do
     create_range_partition_of_subpartitioned_by_list
 
-    adapter.add_index_on_all_partitions table_name, :updated_at, name: index_prefix, using: :hash,
-                                        algorithm: :concurrently,
-                                        where: "created_at > '#{current_date.to_time.iso8601}'"
+    if ActiveRecord::VERSION::STRING >= '7.1'
+      adapter.add_index_on_all_partitions table_name, :updated_at, name: index_prefix, using: :btree,
+                        algorithm: :concurrently,
+                        where: "created_at > '#{current_date.to_time.iso8601}'",
+                        include: [:created_at]
+    else
+      adapter.add_index_on_all_partitions table_name, :updated_at, name: index_prefix, using: :hash,
+                        algorithm: :concurrently,
+                        where: "created_at > '#{current_date.to_time.iso8601}'"
+    end
   end
 
   describe "#create_hash_partition" do
@@ -371,18 +378,36 @@ RSpec.describe ActiveRecord::ConnectionAdapters::PostgreSQLAdapter do
 
   describe "#add_index_on_all_partitions" do
     let(:grandchild_index_sql) do
-      <<-SQL
-        CREATE INDEX #{index_prefix}_#{Digest::MD5.hexdigest(grandchild_table_name)[0..6]}
-        ON #{grandchild_table_name} USING hash (updated_at)
-        WHERE (created_at > '#{current_date} 00:00:00'::timestamp without time zone)
-      SQL
+      if ActiveRecord::VERSION::STRING >= '7.1'
+            <<-SQL
+              CREATE INDEX #{index_prefix}_#{Digest::MD5.hexdigest(grandchild_table_name)[0..6]}
+              ON #{grandchild_table_name} USING btree (updated_at)
+              INCLUDE (created_at)
+              WHERE (created_at > '#{current_date} 00:00:00'::timestamp without time zone)
+            SQL
+      else
+        <<-SQL
+          CREATE INDEX #{index_prefix}_#{Digest::MD5.hexdigest(grandchild_table_name)[0..6]}
+          ON #{grandchild_table_name} USING hash (updated_at)
+          WHERE (created_at > '#{current_date} 00:00:00'::timestamp without time zone)
+        SQL
+      end
     end
     let(:sibling_index_sql) do
-      <<-SQL
-        CREATE INDEX #{index_prefix}_#{Digest::MD5.hexdigest(sibling_table_name)[0..6]}
-        ON #{sibling_table_name} USING hash (updated_at)
-        WHERE (created_at > '#{current_date} 00:00:00'::timestamp without time zone)
-      SQL
+      if ActiveRecord::VERSION::STRING >= '7.1'
+        <<-SQL
+          CREATE INDEX #{index_prefix}_#{Digest::MD5.hexdigest(sibling_table_name)[0..6]}
+          ON #{sibling_table_name} USING btree (updated_at)
+          INCLUDE (created_at)
+          WHERE (created_at > '#{current_date} 00:00:00'::timestamp without time zone)
+        SQL
+      else
+          <<-SQL
+          CREATE INDEX #{index_prefix}_#{Digest::MD5.hexdigest(sibling_table_name)[0..6]}
+          ON #{sibling_table_name} USING hash (updated_at)
+          WHERE (created_at > '#{current_date} 00:00:00'::timestamp without time zone)
+        SQL
+      end
     end
 
     before { allow(adapter).to receive(:execute).and_call_original }
@@ -397,30 +422,61 @@ RSpec.describe ActiveRecord::ConnectionAdapters::PostgreSQLAdapter do
 
     it 'creates the indices using CONCURRENTLY directive because `algorthim: :concurrently` args are present' do
       subject
-      expect(adapter).to have_received(:execute).with(
-        "CREATE  INDEX CONCURRENTLY \"#{index_prefix}_#{Digest::MD5.hexdigest(grandchild_table_name)[0..6]}\" "\
-        "ON \"#{grandchild_table_name}\" USING hash (\"updated_at\") "\
-        "WHERE created_at > '#{current_date.to_time.iso8601}'"
-      )
-      expect(adapter).to have_received(:execute).with(
-        "CREATE  INDEX CONCURRENTLY \"#{index_prefix}_#{Digest::MD5.hexdigest(sibling_table_name)[0..6]}\" "\
-        "ON \"#{sibling_table_name}\" USING hash (\"updated_at\") "\
-        "WHERE created_at > '#{current_date.to_time.iso8601}'"
-      )
+      if ActiveRecord::VERSION::STRING >= '7.1'
+        expect(adapter).to have_received(:execute).with(
+          "CREATE  INDEX CONCURRENTLY \"#{index_prefix}_#{Digest::MD5.hexdigest(grandchild_table_name)[0..6]}\" "\
+          "ON \"#{grandchild_table_name}\" USING btree (\"updated_at\") "\
+          "INCLUDE (created_at) "\
+          "WHERE created_at > '#{current_date.to_time.iso8601}'"
+        )
+        expect(adapter).to have_received(:execute).with(
+          "CREATE  INDEX CONCURRENTLY \"#{index_prefix}_#{Digest::MD5.hexdigest(sibling_table_name)[0..6]}\" "\
+          "ON \"#{sibling_table_name}\" USING btree (\"updated_at\") "\
+          "INCLUDE (created_at) "\
+          "WHERE created_at > '#{current_date.to_time.iso8601}'"
+        )
+      else
+        expect(adapter).to have_received(:execute).with(
+          "CREATE  INDEX CONCURRENTLY \"#{index_prefix}_#{Digest::MD5.hexdigest(grandchild_table_name)[0..6]}\" "\
+          "ON \"#{grandchild_table_name}\" USING hash (\"updated_at\") "\
+          "WHERE created_at > '#{current_date.to_time.iso8601}'"
+        )
+        expect(adapter).to have_received(:execute).with(
+          "CREATE  INDEX CONCURRENTLY \"#{index_prefix}_#{Digest::MD5.hexdigest(sibling_table_name)[0..6]}\" "\
+          "ON \"#{sibling_table_name}\" USING hash (\"updated_at\") "\
+          "WHERE created_at > '#{current_date.to_time.iso8601}'"
+        )
+      end
     end
 
     it 'creates indices, non-concurrently, on partitioned tables using ON ONLY directive' do
       subject
-      expect(adapter).to have_received(:execute).with(
-        "CREATE  INDEX \"#{index_prefix}\" "\
-        "ON ONLY \"#{table_name}\" USING hash (\"updated_at\") "\
-        "WHERE created_at > '#{current_date.to_time.iso8601}'"
-      )
-      expect(adapter).to have_received(:execute).with(
-        "CREATE  INDEX \"#{index_prefix}_#{Digest::MD5.hexdigest(child_table_name)[0..6]}\" "\
-        "ON ONLY \"#{child_table_name}\" USING hash (\"updated_at\") "\
-        "WHERE created_at > '#{current_date.to_time.iso8601}'"
-      )
+      if ActiveRecord::VERSION::STRING >= '7.1'
+        expect(adapter).to have_received(:execute).with(
+          "CREATE  INDEX \"#{index_prefix}\" "\
+          "ON ONLY \"#{table_name}\" USING btree (\"updated_at\") "\
+          "INCLUDE (created_at) "\
+          "WHERE created_at > '#{current_date.to_time.iso8601}'"
+        )
+        expect(adapter).to have_received(:execute).with(
+          "CREATE  INDEX \"#{index_prefix}_#{Digest::MD5.hexdigest(child_table_name)[0..6]}\" "\
+          "ON ONLY \"#{child_table_name}\" USING btree (\"updated_at\") "\
+          "INCLUDE (created_at) "\
+          "WHERE created_at > '#{current_date.to_time.iso8601}'"
+        )
+      
+      else
+        expect(adapter).to have_received(:execute).with(
+          "CREATE  INDEX \"#{index_prefix}\" "\
+          "ON ONLY \"#{table_name}\" USING hash (\"updated_at\") "\
+          "WHERE created_at > '#{current_date.to_time.iso8601}'"
+        )
+        expect(adapter).to have_received(:execute).with(
+          "CREATE  INDEX \"#{index_prefix}_#{Digest::MD5.hexdigest(child_table_name)[0..6]}\" "\
+          "ON ONLY \"#{child_table_name}\" USING hash (\"updated_at\") "\
+          "WHERE created_at > '#{current_date.to_time.iso8601}'"
+        )
+      end
     end
 
     it 'attaches the partitioned indices to the correct parent table indices' do
